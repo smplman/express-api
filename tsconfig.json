@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./src",
+    "target": "es6",
+    "module": "commonjs",
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "strict": true,
+    "sourceMap": false,
+    "esModuleInterop": true,
+    "types": [
+      "@types/express",
+      "@types/node"
+    ],
+    "paths": {}
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "./node_modules"
+  ]
+}
