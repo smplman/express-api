@@ -37,40 +37,72 @@ export interface IRequestDefinitionHolder {
 
 }
 
+export type IResponse = Promise<{ response: AxiosResponse<any, any>, name: string }>;
+
 export class RequestDefinitionHolder {
-  requestPromises: {[key: string]: Promise<AxiosResponse<any>>} = {};
-  requests: IRequestDefinition[]
+  requestPromises: {[key: string]: IResponse} = {};
+  requests: IRequestDefinition[];
+  responses: {[key: string]: any} = {};
 
   constructor (requests: IRequestDefinition[]) {
     this.requests = requests;
   }
 
-  get () {
+  async get () {
     this.requests.forEach((request) => {
+      // check for existsing request promise
+      if (request.name in this.requestPromises) {
+        return;
+      }
+  
       if (request.dependsOn) {
+        const depPromises: IResponse[] = [];
+
         request.dependsOn.forEach((dep) => {
           console.log('creating dependant request for', request.name);
-          this.requestPromises[request.name] = new Promise(async (resolve, reject) => {
-            const data = await this.requestPromises[dep.name];
-            const requstPromise = this.createRequest(request, data.data);
 
-            resolve(requstPromise);
-          });
+          // add the request promise if it doesn't exist yet
+          if (!this.requestPromises[dep.name]) {
+            this.requestPromises[dep.name] = this.createRequest(request);
+          }
+
+          depPromises.push(this.requestPromises[dep.name]);
+        });
+
+        this.requestPromises[request.name] = new Promise(async (resolve, reject) => {
+          const responses = await Promise.all(depPromises);
+
+          resolve(this.createRequest(request, this.formatResponses(responses)));
         });
       } else {
         this.requestPromises[request.name] = this.createRequest(request);
       }
     });
 
-    return Object.values(this.requestPromises);
+    const responses = await Promise.all(Object.values(this.requestPromises));
+
+    return this.formatResponses(responses);
   }
 
   createRequest (request: IRequestDefinition, optionsData?: any) {
     console.log('createRequest', request.name);
     return axios.request(request.options(optionsData)).then((response) => {
       // possibly append request definition data here
-      return response;
+      return {
+        name: request.name,
+        response
+      }
     });
+  }
+
+  formatResponses (responses: { response: AxiosResponse<any, any>, name: string }[]) {
+    // pull just the response data
+    const response: {[k: string]: any} = {};
+    responses.forEach((res) => {
+      response[res.name] = res.response.data;
+    });
+
+    return response;
   }
 }
 
@@ -93,12 +125,12 @@ const chartRequest: IRequestDefinition = {
   name: 'chart',
   dependsOn: [airportRequest],
   options: (data: any) => {
-    console.log(data?.['KSDF']?.[0]?.icao_ident);
+    console.log('chart data', data?.airport?.['KSDF']?.[0]?.icao_ident);
     return {
       url: 'https://api.aviationapi.com/v1/charts/afd',
       method: 'GET',
       params: {
-        apt: data?.['KSDF']?.[0]?.icao_ident
+        apt: data?.airport?.['KSDF']?.[0]?.icao_ident
         // apt: 'ksdf'
       }
     }
@@ -126,9 +158,9 @@ axios.interceptors.request.use(request => {
   return request
 })
 
-export function getData() {
-  const holder = new RequestDefinitionHolder([airportRequest, chartRequest, weatherRequest]).get();
-  console.log('holder', holder);
+export async function getData() {
+  const holder = await new RequestDefinitionHolder([airportRequest, chartRequest, weatherRequest]).get();
+  // console.log('holder', holder);
 
   return holder;
 }
